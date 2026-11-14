@@ -6,9 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       verify_run:
-        description: 'Run id: only verify that run''s artifact (no build, no release)'
+        description: 'Run id: only verify that run''s artifact (no build)'
         required: false
         default: ''
+      publish:
+        description: 'With verify_run of a tag build: publish its artifact as that tag''s release after verification'
+        type: boolean
+        default: false
   push:
     tags: ['hovermate-*']
 
@@ -123,23 +127,34 @@ jobs:
   release:
     name: Release
     needs: [build, verify]
-    if: github.ref_type == 'tag'
+    # A tag build, or (dispatch with verify_run and publish) an earlier tag build's verified artifact.
+    if: ${{ !cancelled() && needs.verify.result == 'success' && (github.ref_type == 'tag' || (inputs.publish && inputs.verify_run)) }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-    env:
-      VERSION: ${{ needs.build.outputs.version }}
+      actions: read
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: hovermate-ffmpeg
           path: out
+          run-id: ${{ inputs.verify_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           cd out/release
+          TAG="$(jq -r .tag manifest.json)"
+          VERSION="$(jq -r .version manifest.json)"
+          COMMIT="$(jq -r .build.commit manifest.json)"
+          # The artifact must be the build of that tag's commit.
+          REF="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha')"
+          TAG_COMMIT="${REF#* }"
+          [[ "$REF" == tag* ]] && TAG_COMMIT="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$TAG_COMMIT" --jq .object.sha)"
+          if [[ "$TAG_COMMIT" != "$COMMIT" ]]; then echo "Tag $TAG is $TAG_COMMIT, the artifact was built from $COMMIT" >&2; exit 1; fi
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "$TAG" ]]; then echo "Artifact tag $TAG differs from $GITHUB_REF_NAME" >&2; exit 1; fi
           {
             echo "Static LGPL-2.1-or-later \`ffmpeg.exe\` for Hovermate: FFmpeg $(jq -r .ffmpeg.tag manifest.json) with only the components Hovermate uses."
             echo
@@ -151,7 +166,7 @@ jobs:
             cat "hovermate-ffmpeg-$VERSION-win64-lgpl.zip.sha256"
             echo '```'
             echo
-            echo "Build scripts: commit $(jq -r .build.commit manifest.json)"
+            echo "Build scripts: commit $COMMIT"
           } > ../notes.md
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "Hovermate FFmpeg $VERSION" --notes-file ../notes.md ./*
