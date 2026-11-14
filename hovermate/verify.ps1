@@ -166,7 +166,7 @@ try {
     New-Item -ItemType Directory -Path $in, $clips, $exports -Force | Out-Null
     $source = @('-f', 'lavfi', '-i', 'testsrc2=s=1280x720:r=60:d=6')
     Invoke-Reference ($source + @('-c:v', 'libopenh264', '-b:v', '6M', '-g', '60', '-pix_fmt', 'yuv420p', '-f', 'mpegts', (Join-Path $in 'game-h264.ts')))
-    Invoke-Reference ($source + @('-c:v', 'libkvazaar', '-kvazaar-params', 'preset=ultrafast,period=60', '-pix_fmt', 'yuv420p', '-f', 'mpegts', (Join-Path $in 'game-hevc.ts')))
+    Invoke-Reference ($source + @('-c:v', 'libkvazaar', '-kvazaar-params', 'preset=ultrafast,period=64', '-pix_fmt', 'yuv420p', '-f', 'mpegts', (Join-Path $in 'game-hevc.ts')))
     Invoke-Reference @('-f', 'lavfi', '-i', 'testsrc2=s=1280x720:r=60:d=4', '-c:v', 'libopenh264', '-b:v', '6M', '-g', '60', '-pix_fmt', 'yuv420p', '-f', 'mpegts', (Join-Path $in 'game-h264-b.ts'))
     foreach ($track in @(@('game', 440, 6), @('microphone', 880, 6), @('game-b', 330, 4))) {
         Invoke-Reference @('-f', 'lavfi', '-i', "sine=f=$($track[1]):r=48000:d=$($track[2])", '-ac', '2', '-c:a', 'pcm_s16le', (Join-Path $in "audio-$($track[0]).wav"))
@@ -352,7 +352,7 @@ try {
         Test-Media 'session clip.mp4' (Join-Path $session 'clip.mp4') 'h264' @('aac') -MinDuration 8.5
         Test-Media 'session game.wav' (Join-Path $session 'audio/game.wav') '' @('pcm_s16le') -MinDuration 8.5
     }
-    $exportList = Write-Concat (Join-Path $exports 'session.txt') @(@((Join-Path $clipH264 'clip.mp4'), '', ''), @((Join-Path $copyCut 'clip.mp4'), '0.5', 'inpoint'))
+    $exportList = Write-Concat (Join-Path $exports 'session.txt') @(@((Join-Path $clipH264 'clip.mp4'), '', ''), @((Join-Path $copyCut 'clip.mp4'), '1', 'inpoint'))
     if (Step 'session export (one run, stream copy)' @('-f', 'concat', '-safe', '0', '-i', $exportList, '-map', '0:v:0', '-map', '0:a:0?', '-c', 'copy', '-movflags', '+faststart', (Join-Path $exports 'session.mp4'))) {
         Test-Media 'session export copy' (Join-Path $exports 'session.mp4') 'h264' @('aac') -MinDuration 7
     }

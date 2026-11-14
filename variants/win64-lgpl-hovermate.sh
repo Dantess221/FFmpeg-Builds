@@ -1,7 +1,8 @@
 #!/bin/bash
 # Hovermate: one static ffmpeg.exe (LGPL-2.1-or-later) with only the protocols, formats, codecs and filters
 # the product runs. The expected component lists are hovermate/required/*.txt (checked in CI).
-# External libraries are listed in scripts.d/zz-final.sh (Hovermate branch).
+# External libraries are listed in scripts.d/zz-final.sh (Hovermate branch). Build with hovermate/build.sh: it adds
+# the 8.1 addin (library versions for FFmpeg 8.1) and builds the tag in GIT_BRANCH below.
 
 # Software H.264 through Cisco's libopenh264. Off: a binary we build ourselves is not covered by Cisco's
 # H.264 patent licence, so software H.264 goes through h264_mf (Media Foundation) next to nvenc, amf and qsv.

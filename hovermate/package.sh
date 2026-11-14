@@ -45,7 +45,7 @@ while read -r archive; do
     stage="$(basename "$archive" | sed 's/_[0-9a-f]\{64\}\.tar\.xz$//')"
     STAGE_FILES[$stage]="$archive"
     mkdir -p "$SRC/libraries/$stage"
-    tar -xJf "$archive" -C "$SRC/libraries/$stage"
+    tar -xJf "$archive" --exclude=.git -C "$SRC/libraries/$stage"
 done < "$BUILD/SOURCES"
 
 stage_repo() { ( source "scripts.d/$1.sh" && echo "${!2}" ); }
@@ -69,9 +69,9 @@ licence_text() {
     50-ffnvcodec) sed -n '1,/^ \*\//p' "$root/ffnvcodec2/include/ffnvcodec/nvEncodeAPI.h" ;;
     50-amf) cat "$root/LICENSE.txt" ;;
     10-mingw)
-        cat "$root/mingw/COPYING.MinGW-w64-runtime/COPYING.MinGW-w64-runtime.txt"
+        cat "$root/COPYING.MinGW-w64-runtime/COPYING.MinGW-w64-runtime.txt"
         echo; echo "winpthreads:"; echo
-        cat "$root/mingw/mingw-w64-libraries/winpthreads/COPYING" ;;
+        cat "$root/mingw-w64-libraries/winpthreads/COPYING" ;;
     *) echo "No licence mapping for $1" >&2; return 1 ;;
     esac
 }
@@ -134,8 +134,7 @@ FFmpeg: https://github.com/FFmpeg/FFmpeg/tree/$FFMPEG_TAG (https://ffmpeg.org/do
 EOF
 
 cp "$BUILD/ffmpeg.exe" "$BUILD/LICENSE.txt" "$BIN/"
-for file in "$BIN"/*.txt; do sed -i 's/$/\r/' "$file"; done
-(cd "$BIN" && TZ=UTC touch -d '2000-01-01 00:00:00' * && zip -X -9 -D "$WORK/$NAME-win64-lgpl.zip" ffmpeg.exe LICENSE.txt THIRD_PARTY_LICENSES.txt BUILDINFO.txt SOURCE.txt)
+(cd "$BIN" && export TZ=UTC && touch -d '2000-01-01 00:00:00' * && zip -X -9 -D "$WORK/$NAME-win64-lgpl.zip" ffmpeg.exe LICENSE.txt THIRD_PARTY_LICENSES.txt BUILDINFO.txt SOURCE.txt)
 mv "$WORK/$NAME-win64-lgpl.zip" "$OUT/"
 (cd "$OUT" && sha256sum "$NAME-win64-lgpl.zip" > "$NAME-win64-lgpl.zip.sha256")
 
