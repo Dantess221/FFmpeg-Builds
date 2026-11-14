@@ -139,7 +139,10 @@ try {
         }
     }
     $licence = (Invoke-Tool $Ffmpeg @('-hide_banner', '-L')).Out
-    if ($licence -match 'GNU Lesser General Public License' -and $licence -match 'either version 2\.1') { Pass 'ffmpeg -L: LGPL version 2.1 or later' }
+    $licenceText = $licence -replace '\s+', ' '
+    if ($licenceText -match 'GNU Lesser General Public License' -and $licenceText -match 'either version 2\.1 of the License, or \(at your option\) any later version') {
+        Pass 'ffmpeg -L: LGPL version 2.1 or later'
+    }
     else { Fail "ffmpeg -L is not LGPL-2.1-or-later: $licence" }
     $size = (Get-Item -LiteralPath $Ffmpeg).Length
     if ($size -le $MaxSizeMB * 1MB) { Pass ("ffmpeg.exe {0:N1} MB (limit {1} MB)" -f ($size / 1MB), $MaxSizeMB) }

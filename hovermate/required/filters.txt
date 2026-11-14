@@ -19,6 +19,7 @@ null
 overlay
 palettegen
 paletteuse
+premultiply_dynamic
 rotate
 scale
 split

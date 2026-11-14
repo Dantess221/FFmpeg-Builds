@@ -2,3 +2,4 @@ aac
 h264
 hevc
 pcm_s16le
+wrapped_avframe

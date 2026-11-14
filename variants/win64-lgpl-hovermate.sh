@@ -15,12 +15,16 @@ FF_CONFIGURE+=" --enable-protocol=file,pipe"
 FF_CONFIGURE+=" --enable-demuxer=mpegts,mov,wav,concat --enable-indev=lavfi"
 FF_CONFIGURE+=" --enable-muxer=mp4,mov,matroska,webm,gif,wav,image2,null"
 FF_CONFIGURE+=" --enable-parser=h264,hevc,aac"
-FF_CONFIGURE+=" --enable-decoder=h264,hevc,aac,pcm_s16le"
+# wrapped_avframe: the lavfi input (Hovermate's encoder probe) delivers frames as wrapped_avframe packets.
+FF_CONFIGURE+=" --enable-decoder=h264,hevc,aac,pcm_s16le,wrapped_avframe"
 FF_CONFIGURE+=" --enable-encoder=aac,prores_ks,gif,mjpeg,pcm_s16le,libvpx_vp9,libopus"
 FF_CONFIGURE+=",h264_nvenc,hevc_nvenc,h264_amf,hevc_amf,h264_qsv,hevc_qsv,h264_mf,hevc_mf"
 if [[ $HOVERMATE_LIBOPENH264 == 1 ]]; then FF_CONFIGURE+=",libopenh264"; fi
 FF_CONFIGURE+=" --enable-filter=scale,fps,format,aformat,null,anull,split,asplit,amix,alimiter,alphamerge,overlay"
-FF_CONFIGURE+=",palettegen,paletteuse,tpad,unpremultiply,color,aresample"
+FF_CONFIGURE+=",palettegen,paletteuse,tpad,unpremultiply,color"
+# Inserted by libavfilter's format negotiation: scale (pixel formats, ranges), aresample (audio formats),
+# premultiply_dynamic (alpha modes: overlay/alphamerge with premultiplied layers).
+FF_CONFIGURE+=",aresample,premultiply_dynamic"
 FF_CONFIGURE+=" --enable-bsf=extract_extradata,h264_mp4toannexb,hevc_mp4toannexb,aac_adtstoasc,vp9_superframe,null"
 # Autodetected system features stay off (--disable-autodetect) unless named here. The external libraries
 # (--enable-libvpx, --enable-libopus, --enable-ffnvcodec, --enable-amf, --enable-libvpl) come from their stages.
