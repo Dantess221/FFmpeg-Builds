@@ -18,6 +18,10 @@ mkdir -p "${PWD}"/.cache/downloads
 
 for STAGE in scripts.d/*.sh scripts.d/*/*.sh; do
 	STAGENAME="$(basename "$STAGE" | sed 's/.sh$//')"
+	# Optional allow-list of stage names (FFBUILD_DL_STAGES="10-mingw 50-libvpx ...") for builds of one variant.
+	if [[ -n "$FFBUILD_DL_STAGES" && " $FFBUILD_DL_STAGES " != *" $STAGENAME "* ]]; then
+		continue
+	fi
 
 	cat <<-EOF >"${DL_SCRIPT_DIR}/${STAGENAME}.sh"
 		set -xe -o pipefail

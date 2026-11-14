@@ -1,0 +1,15 @@
+aac
+gif
+h264_amf
+h264_mf
+h264_nvenc
+h264_qsv
+hevc_amf
+hevc_mf
+hevc_nvenc
+hevc_qsv
+libopus
+libvpx-vp9
+mjpeg
+pcm_s16le
+prores_ks

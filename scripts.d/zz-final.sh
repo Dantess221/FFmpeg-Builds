@@ -3,6 +3,19 @@
 SCRIPT_SKIP="1"
 
 ffbuild_depends() {
+    if [[ $VARIANT == *hovermate* ]]; then
+        # Hovermate links only these (licences: MIT, MIT, BSD-3-Clause, BSD-3-Clause, MIT).
+        # libopenh264 (BSD-2-Clause) is opt-in through HOVERMATE_LIBOPENH264 in the variant.
+        source "variants/${TARGET}-${VARIANT}.sh"
+        echo amf
+        echo ffnvcodec
+        echo libopus
+        echo libvpx
+        echo onevpl
+        if [[ $HOVERMATE_LIBOPENH264 == 1 ]]; then echo openh264; fi
+        return 0
+    fi
+
     echo libiconv
     echo zlib
     echo fribidi

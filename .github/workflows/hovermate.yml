@@ -1,0 +1,144 @@
+name: Hovermate FFmpeg
+
+# Builds Hovermate's static LGPL ffmpeg.exe (variants/win64-lgpl-hovermate.sh), verifies it on Windows and, for a
+# tag hovermate-<ffmpeg tag>-<build> (e.g. hovermate-n8.1.3-1), publishes the release assets.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['hovermate-*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hovermate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            VERSION="${GITHUB_REF_NAME#hovermate-}"
+          else
+            VERSION="$(source variants/win64-lgpl-hovermate.sh && echo "$GIT_BRANCH")-dev.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Free disk space
+        run: ./util/free_disk_space.sh
+      - name: Restore build cache
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache
+          key: hovermate-${{ hashFiles('images/**', 'scripts.d/**', 'variants/**', 'addins/**', 'util/**', 'generate.sh', 'makeimage.sh', 'download.sh') }}
+          restore-keys: hovermate-
+      - name: Build
+        run: ./hovermate/build.sh
+      - name: Save build cache
+        # Also after a failed FFmpeg build: the images are cached by then.
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+      - name: Package
+        run: ./hovermate/package.sh "${{ steps.version.outputs.version }}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hovermate-ffmpeg
+          path: |
+            out/release/
+            out/build/config_components.h
+          if-no-files-found: error
+
+  verify:
+    name: Verify on Windows
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      # Reference FFmpeg for tests only (makes the synthetic inputs, decodes the outputs): the BtbN build Hovermate used before.
+      REFERENCE_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-n8.1.3-27-g8dca1586f4-win64-lgpl-shared-8.1.zip
+      REFERENCE_SHA256: 5CEF7BC48E513F3CEE7C881E8B2999D835541EDB1846C3E89443A67F8F8556AB
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: hovermate-ffmpeg
+          path: out
+      - name: Unpack
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $name = "hovermate-ffmpeg-$env:VERSION-win64-lgpl.zip"
+          $zip = Join-Path out/release $name
+          $line = (Get-Content -LiteralPath "$zip.sha256" -Raw).Trim()
+          $expected = "$((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant())  $name"
+          if ($line -ne $expected) { throw "Checksum file does not match: '$line' vs '$expected'" }
+          $unpacked = Join-Path $env:RUNNER_TEMP 'hovermate-ffmpeg'
+          Expand-Archive -LiteralPath $zip -DestinationPath $unpacked
+          $files = @(Get-ChildItem -LiteralPath $unpacked -Recurse -File | ForEach-Object Name | Sort-Object)
+          $want = @('BUILDINFO.txt', 'LICENSE.txt', 'SOURCE.txt', 'THIRD_PARTY_LICENSES.txt', 'ffmpeg.exe')
+          if (($files -join ',') -ne ($want -join ',')) { throw "Unexpected archive contents: $($files -join ', ')" }
+          Get-Content -LiteralPath (Join-Path $unpacked 'BUILDINFO.txt')
+          $reference = Join-Path $env:RUNNER_TEMP 'reference'
+          New-Item -ItemType Directory -Path $reference | Out-Null
+          Invoke-WebRequest -Uri $env:REFERENCE_URL -OutFile (Join-Path $reference 'reference.zip')
+          if ((Get-FileHash -LiteralPath (Join-Path $reference 'reference.zip') -Algorithm SHA256).Hash -ne $env:REFERENCE_SHA256) { throw 'Reference FFmpeg checksum mismatch.' }
+          Expand-Archive -LiteralPath (Join-Path $reference 'reference.zip') -DestinationPath $reference
+      - name: Verify
+        shell: pwsh
+        run: |
+          $reference = Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'reference') -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          ./hovermate/verify.ps1 -Ffmpeg (Join-Path $env:RUNNER_TEMP 'hovermate-ffmpeg/ffmpeg.exe') -Reference $reference.FullName `
+            -ConfigComponents out/build/config_components.h
+
+  release:
+    name: Release
+    needs: [build, verify]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: hovermate-ffmpeg
+          path: out
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd out/release
+          {
+            echo "Static LGPL-2.1-or-later \`ffmpeg.exe\` for Hovermate: FFmpeg $(jq -r .ffmpeg.tag manifest.json) with only the components Hovermate uses."
+            echo
+            echo "- \`hovermate-ffmpeg-$VERSION-win64-lgpl.zip\`: ffmpeg.exe, LICENSE.txt, THIRD_PARTY_LICENSES.txt, BUILDINFO.txt, SOURCE.txt"
+            echo "- \`hovermate-ffmpeg-$VERSION-source.tar.xz\`: complete corresponding source (FFmpeg, libraries at pinned commits, build scripts, Dockerfile, config.log)"
+            echo "- \`manifest.json\`: versions, commits, licences and SHA-256 of every asset"
+            echo
+            echo '```'
+            cat "hovermate-ffmpeg-$VERSION-win64-lgpl.zip.sha256"
+            echo '```'
+            echo
+            echo "Build scripts: commit $(jq -r .build.commit manifest.json)"
+          } > ../notes.md
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Hovermate FFmpeg $VERSION" --notes-file ../notes.md ./*
