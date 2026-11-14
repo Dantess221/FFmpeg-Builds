@@ -4,6 +4,11 @@ name: Hovermate FFmpeg
 # tag hovermate-<ffmpeg tag>-<build> (e.g. hovermate-n8.1.3-1), publishes the release assets.
 on:
   workflow_dispatch:
+    inputs:
+      verify_run:
+        description: 'Run id: only verify that run''s artifact (no build, no release)'
+        required: false
+        default: ''
   push:
     tags: ['hovermate-*']
 
@@ -17,6 +22,7 @@ concurrency:
 jobs:
   build:
     name: Build
+    if: ${{ !inputs.verify_run }}
     runs-on: ubuntu-24.04
     timeout-minutes: 330
     outputs:
@@ -65,10 +71,13 @@ jobs:
   verify:
     name: Verify on Windows
     needs: build
+    if: ${{ !cancelled() && (needs.build.result == 'success' || inputs.verify_run) }}
     runs-on: windows-2025
     timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
     env:
-      VERSION: ${{ needs.build.outputs.version }}
       # Reference FFmpeg for tests only (makes the synthetic inputs, decodes the outputs): the BtbN build Hovermate used before.
       REFERENCE_URL: https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/ffmpeg-n8.1.3-27-g8dca1586f4-win64-lgpl-shared-8.1.zip
       REFERENCE_SHA256: 5CEF7BC48E513F3CEE7C881E8B2999D835541EDB1846C3E89443A67F8F8556AB
@@ -80,19 +89,23 @@ jobs:
         with:
           name: hovermate-ffmpeg
           path: out
+          run-id: ${{ inputs.verify_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Unpack
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $name = "hovermate-ffmpeg-$env:VERSION-win64-lgpl.zip"
-          $zip = Join-Path out/release $name
+          $zip = @(Get-ChildItem -LiteralPath out/release -Filter 'hovermate-ffmpeg-*-win64-lgpl.zip')
+          if ($zip.Count -ne 1) { throw "Expected one release zip, found $($zip.Count)." }
+          $name = $zip[0].Name
+          $zip = $zip[0].FullName
           $line = (Get-Content -LiteralPath "$zip.sha256" -Raw).Trim()
           $expected = "$((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant())  $name"
           if ($line -ne $expected) { throw "Checksum file does not match: '$line' vs '$expected'" }
           $unpacked = Join-Path $env:RUNNER_TEMP 'hovermate-ffmpeg'
           Expand-Archive -LiteralPath $zip -DestinationPath $unpacked
           $files = @(Get-ChildItem -LiteralPath $unpacked -Recurse -File | ForEach-Object Name | Sort-Object)
-          $want = @('BUILDINFO.txt', 'LICENSE.txt', 'SOURCE.txt', 'THIRD_PARTY_LICENSES.txt', 'ffmpeg.exe')
+          $want = @('BUILDINFO.txt', 'LICENSE.txt', 'SOURCE.txt', 'THIRD_PARTY_LICENSES.txt', 'ffmpeg.exe') | Sort-Object
           if (($files -join ',') -ne ($want -join ',')) { throw "Unexpected archive contents: $($files -join ', ')" }
           Get-Content -LiteralPath (Join-Path $unpacked 'BUILDINFO.txt')
           $reference = Join-Path $env:RUNNER_TEMP 'reference'
