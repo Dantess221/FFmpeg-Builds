@@ -93,10 +93,10 @@ function Test-Media([string]$Name, [string]$Path, [string]$Video, [string[]]$Aud
 # Runs one product command; returns $true on success.
 function Step([string]$Name, [string[]]$Arguments) {
     $result = Invoke-Product $Arguments
-    # The webm export (libvpx-vp9 + libopus) occasionally never finishes; the BtbN build Hovermate used before
-    # does the same (2 of 10 runs on a GitHub runner). A command that hangs is retried and reported.
+    # Layers composited and audio mixed in one filter graph deadlocked now and then at the end of an export (FFmpeg 8.1,
+    # any encoder); Hovermate now uses separate graphs, as these commands do. A command that still hangs is retried and reported.
     for ($retry = 1; $retry -le 2 -and "$($result.Code)" -like 'timeout*'; $retry++) {
-        Warn "$Name - $($result.Code), retry $retry (intermittent hang, also in the previous BtbN build)"
+        Warn "$Name - $($result.Code), retry $retry (hung)"
         $result = Invoke-Product $Arguments
     }
     if ($result.Code -ne 0) { Fail "$Name - exit $($result.Code): $($result.Err.Trim())"; return $false }
@@ -289,22 +289,23 @@ try {
     $trackInputs = @('-ss', '0.5', '-t', '3', '-i', (Join-Path $in 'audio-game.wav'), '-ss', '0.5', '-t', '3', '-i', (Join-Path $in 'audio-microphone.wav'))
     $composite = '[1:v]format=yuva420p[c1];[2:v]scale=in_range=tv:out_range=pc,format=gray[a1];[c1][a1]alphamerge[l1];' +
         '[0:v][l1]overlay=0:0:alpha=premultiplied:eof_action=pass:format=auto[v1]'
+    # The audio mix is its own filter graph (see Step), like ClipLibrary.ExportCoreAsync.
     $mixExport = "[3:a][4:a]$mixTwo"
     $exportCases = @(
         @{ Name = 'mp4 (scale 540, fps 30, separate tracks)'; File = 'export.mp4'; Encoder = $h264; Layers = $layerInputs
-           Filter = "$composite;[v1]scale=-2:540:flags=lanczos,fps=30[vout];$mixExport"; Audio = @('-map', '[mix]', '-map', '3:a', '-map', '4:a', '-c:a', 'aac', '-b:a', '192k')
+           Filter = "$composite;[v1]scale=-2:540:flags=lanczos,fps=30[vout]"; Audio = @('-map', '[mix]', '-map', '3:a', '-map', '4:a', '-c:a', 'aac', '-b:a', '192k')
            Tail = @('-movflags', '+faststart'); Video = 'h264'; AudioCodecs = @('aac', 'aac', 'aac'); Contains = @('960x540') }
         @{ Name = 'hevc (-tag:v hvc1)'; File = 'export-hevc.mp4'; Encoder = $hevc; Layers = $layerInputs
-           Filter = "$composite;[v1]null[vout];$mixExport"; Audio = @('-map', '[mix]', '-c:a', 'aac', '-b:a', '192k')
+           Filter = "$composite;[v1]null[vout]"; Audio = @('-map', '[mix]', '-c:a', 'aac', '-b:a', '192k')
            Tail = @('-movflags', '+faststart', '-tag:v', 'hvc1'); Video = 'hevc'; AudioCodecs = @('aac'); Contains = @('hvc1') }
         @{ Name = 'mkv (delayed layer)'; File = 'export.mkv'; Encoder = $h264; Layers = $delayedLayerInputs
-           Filter = "$composite;[v1]null[vout];$mixExport"; Audio = @('-map', '[mix]', '-c:a', 'aac', '-b:a', '192k')
+           Filter = "$composite;[v1]null[vout]"; Audio = @('-map', '[mix]', '-c:a', 'aac', '-b:a', '192k')
            Tail = @(); Video = 'h264'; AudioCodecs = @('aac'); Contains = @() }
         @{ Name = 'mov'; File = 'export.mov'; Encoder = $h264; Layers = $layerInputs
-           Filter = "$composite;[v1]null[vout];$mixExport"; Audio = @('-map', '[mix]', '-c:a', 'aac', '-b:a', '192k')
+           Filter = "$composite;[v1]null[vout]"; Audio = @('-map', '[mix]', '-c:a', 'aac', '-b:a', '192k')
            Tail = @('-movflags', '+faststart'); Video = 'h264'; AudioCodecs = @('aac'); Contains = @() }
         @{ Name = 'webm (vp9 + opus)'; File = 'export.webm'; Encoder = 'libvpx-vp9'; Layers = $layerInputs
-           Filter = "$composite;[v1]null[vout];$mixExport"; Audio = @('-map', '[mix]', '-c:a', 'libopus', '-b:a', '160k')
+           Filter = "$composite;[v1]null[vout]"; Audio = @('-map', '[mix]', '-c:a', 'libopus', '-b:a', '160k')
            Tail = @(); Video = 'vp9'; AudioCodecs = @('opus'); Contains = @() }
         @{ Name = 'gif (palettegen/paletteuse)'; File = 'export.gif'; Encoder = 'gif'; Layers = $layerInputs
            Filter = "$composite;[v1]fps=15,scale=-2:480:flags=lanczos,split[g0][g1];[g0]palettegen=stats_mode=diff[gp];[g1][gp]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle[vout]"
@@ -324,7 +325,7 @@ try {
             default { Encoder-Arguments $case.Encoder 8000 }
         }
         $output = Join-Path $exports $case.File
-        if (Step "export $($case.Name)" ($clipInput + $case.Layers + $trackInputs + @('-filter_complex', $case.Filter, '-map', '[vout]') + $videoArguments + $case.Audio + $case.Tail + @($output))) {
+        if (Step "export $($case.Name)" ($clipInput + $case.Layers + $trackInputs + @('-filter_complex', $case.Filter) + $(if ($case.Audio) { @('-filter_complex', $mixExport) } else { @() }) + @('-map', '[vout]') + $videoArguments + $case.Audio + $case.Tail + @($output))) {
             Test-Media "export $($case.Name)" $output $case.Video $case.AudioCodecs -Contains $case.Contains -MinDuration 2.5
         }
     }
