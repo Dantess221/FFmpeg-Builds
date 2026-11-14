@@ -314,10 +314,11 @@ try {
     foreach ($case in $exportCases) {
         if (-not $case.Encoder) { Skip "export $($case.Name)"; continue }
         if ($case.Video -eq 'hevc' -and $case.Encoder -notlike 'hevc_*') {
-            # Hovermate falls back to the H.264 encoder and still passes -tag:v hvc1, which the mp4 muxer rejects.
-            $skipped.Add("export $($case.Name)")
-            Warn "export $($case.Name) - no HEVC encoder here; the product's H.264 fallback keeps -tag:v hvc1 and fails (product behaviour, not this build)"
-            continue
+            # No HEVC encoder here: Hovermate falls back to H.264 and leaves out the hvc1 tag (ClipLibrary.EncodedVideoArguments).
+            Warn "export $($case.Name) - no HEVC encoder here; checked as Hovermate's H.264 fallback without the hvc1 tag"
+            $case.Tail = @($case.Tail | Where-Object { $_ -notin @('-tag:v', 'hvc1') })
+            $case.Video = 'h264'
+            $case.Contains = @()
         }
         $videoArguments = switch ($case.Encoder) {
             'libvpx-vp9' { @('-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '32', '-row-mt', '1', '-deadline', 'good', '-cpu-used', '4', '-pix_fmt', 'yuv420p') }
